@@ -14,14 +14,20 @@ uint16_t sign_extend(uint16_t val, int bitsize) {
 }
 
 int main() {
-    uint16_t instr = 0x190F;
+    // uint16_t instr = 0x190F;
 
-    uint16_t imm5 = instr & 0x1F; 
+    // uint16_t imm5 = instr & 0x1F; 
 
-    printf("preshift: %x\n",imm5);
+    // printf("preshift: %x\n",imm5);
     
-    imm5 = sign_extend(imm5, 5);
+    // imm5 = sign_extend(imm5, 5);
 
-    printf("postshift: %x\n",imm5);
+    // printf("postshift: %x\n",imm5);
+
+    // char c = getchar();
+    // printf("%c\n", c);
+
+    char d = getc(stdin);
+    printf("%c\n", d);
     
 }

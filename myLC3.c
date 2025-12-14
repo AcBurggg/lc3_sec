@@ -1,3 +1,6 @@
+// NOT MY OWN WORK. BASED OFF TUTORIAL HERE https://www.jmeiners.com/lc3-vm/index.html.
+// FOLLOWING ALONG FOR FUN/EDUCATION AND (maybe) ADDING MY OWN TRAPS / STUFF LATER
+
 #include <stdio.h>
 #include <stdint.h>
 #include <signal.h>
@@ -56,6 +59,14 @@ enum Opcodes
     OP_RES,    /* reserved (unused) */
     OP_LEA,    /* load effective address */
     OP_TRAP    /* execute trap */
+};
+
+enum TrapVectors {
+    TRAP_GETC = 0x20,
+    TRAP_OUT = 0x21, 
+    TRAP_PUTS = 0x22,
+    TRAP_IN = 0x23,
+    TRAP_HALT = 0x25
 };
 
 /// @brief sets the condition codes register
@@ -136,13 +147,32 @@ int main(int argc, const char* argv[]) {
                         set_condition_codes(reg[dr]);
                         break;
                     default:
-                        printf("bad add instruction at %d\n", reg[R_PC]);
+                        printf("bad ADD instruction at %d\n", reg[R_PC]);
                         break;
                 }
                 
                 break;
             case OP_AND:
-                //
+                uint16_t mode = (instr >> 5) & 0x1;
+                switch(mode) {
+                    case 0:
+                        //two registers
+                        uint16_t sr1 = (instr >> 6) & 0x7;
+                        uint16_t sr2 = instr & 0x7;
+                        uint16_t dr = (instr >> 9) & 0x7;
+
+                        reg[dr] = reg[sr1] & reg[sr2];
+                        set_condition_codes(reg[dr]);
+                        break;
+                    case 1:
+                        //imm5
+                        reg[dr] = reg[sr1] & sign_extend((instr & 0x1F), 5);
+                        set_condition_codes(reg[dr]);
+                        break;
+                    default:
+                        printf("bad ADD instruction at %d\n", reg[R_PC]);
+                        break;
+                }
                 break;
             case OP_NOT:
                 //bitwise invert the contents of the SR1 and put in DR
@@ -154,42 +184,127 @@ int main(int argc, const char* argv[]) {
                 set_condition_codes(reg[dr]);
                 break;
             case OP_BR:
-                //
+                //need to set PC to be current value plus SEXT(off9) ONLY if NZP config checks out 
+                uint16_t pc_offset9 = sign_extend(instr & 0x1FF, 9);
+                uint16_t nzp = (instr >> 9) & 0x7;
+                
+                if (nzp & reg[R_COND] != 0) {
+                    //we have a match
+                    reg[R_PC] += pc_offset9;
+                }
                 break;
             case OP_JMP:
-                //
+                uint16_t baseR = (instr >> 6) & 0x7;
+                reg[R_PC] += reg[baseR];
                 break;
             case OP_JSR:
-                //
+                //R7 = PC
+                // if bit 11 == 0, then PC = BaseR. Else = PC* + SEXT(PCoffset11)
+                uint16_t mode = (instr >> 11) & 0x1;
+                reg[R_R7] = reg[R_PC];
+                if (mode) {
+                    //pcoffset
+                    uint16_t pc_offset11 = sign_extend(instr & 0x7FF, 11);
+                    reg[R_PC] += pc_offset11;
+                } else {
+                    //baseR
+                    uint16_t baseR = (instr >> 6) & 0x7;
+                    reg[R_PC] = reg[baseR];
+                }
                 break;
             case OP_LD:
-                //
+                uint16_t dr = (instr >> 9) & 0x7;
+                uint16_t pc_offset9 = sign_extend(instr & 0x1FF, 9);
+
+                reg[dr] = mem_read(reg[R_PC] + pc_offset9);
+
+                set_condition_codes(reg[dr]);
                 break;
             case OP_LDI:
-                //
+                uint16_t dr = (instr >> 9) & 0x7;
+                uint16_t pc_offset9 = sign_extend(instr & 0x1FF, 9);
+                reg[dr] = mem_read(mem_read(reg[R_PC] + pc_offset9));
+                set_condition_codes(reg[dr]);
                 break;
             case OP_LDR:
-                //
+                uint16_t dr = (instr >> 9) & 0x7;
+                uint16_t baseR = (instr >> 6) & 0x7;
+                uint16_t pc_offset6 = sign_extend(instr & 0x3F, 6);
+
+                reg[dr] = mem_read(reg[baseR] + pc_offset6);
+                set_condition_codes(reg[dr]);
                 break;
             case OP_LEA:
-                //
+                uint16_t dr = (instr >> 9) & 0x7;
+                uint16_t pc_offset9 = sign_extend(instr & 0x1FF, 9);
+
+                reg[dr] = reg[R_PC] + pc_offset9;
                 break;
             case OP_ST:
-                //
+                uint16_t sr = (instr >> 9) & 0x7;
+                uint16_t pc_offset9 = sign_extend(instr & 0x1FF, 9);
+
+                mem_write(reg[R_PC] + pc_offset9, reg[sr]);
                 break;
             case OP_STI:
-                //
+                uint16_t sr = (instr >> 9) & 0x7;
+                uint16_t pc_offset9 = sign_extend(instr & 0x1FF, 9);
+
+                mem_write(mem_read(reg[R_PC] + pc_offset9), sr);
                 break;
             case OP_STR:
-                //
+                uint16_t sr = (instr >> 9) & 0x7;
+                uint16_t baseR = (instr >> 6) & 0x7;
+                uint16_t pc_offset6 = sign_extend(instr & 0x3F, 6);
+
+                mem_write(reg[baseR] + pc_offset6, sr);
                 break;
             case OP_TRAP:
-                //
+                // currently just handle all traps here based on known vector. might add TVT / IVT to memory later if bored
+                reg[R_R7] = reg[R_PC];
+                //note how we aren't changing PC at all actually but to virtualize exact behavior we must overwrite R7 still 
+                //if I add TVT and assembled binary in system memory we can actually do it 
+                //...honestly this would just be for shits n gigs - VM shouldn't do it how real computer would
+                
+                uint16_t trapvect8 = instr & 0xFF;
+                switch(trapvect8) {
+                    case TRAP_GETC:
+                        //takes a character from stdin and stores it in R0
+                        reg[R_R0] = (uint16_t)getchar();
+                        set_condition_codes(reg[R_R0]);
+                        break;
+                    case TRAP_OUT:
+                        //print char in R0 to console
+                        putchar((char)reg[R_R0]); //DO WE NEED TO CAST TO CHAR WITH putchar or is uint16 chill
+                        fflush(stdout);
+                        break;
+                    case TRAP_PUTS:
+                        //print a string of characters, starting at the address in R0 and ending at a null terminator
+                        //can use putchar()
+                        
+                        uint16_t* currAddr = memory + reg[R_R0];
+                        while (*currAddr != 0) {
+                            putchar((char)*currAddr); //ditto from out casting question
+                            currAddr++;
+                        }
+                        fflush(stdout);
+                        break;
+                    case TRAP_IN:
+                        //gets a character into R0 getc BUT also echoes to the terminal
+                        reg[R_R0] = (uint16_t)getchar();
+                        putchar((char)reg[R_R0]);
+                        fflush(stdout);
+                        set_condition_codes(reg[R_R0]);
+                        break;
+                    case TRAP_HALT:
+                        running = 0;
+                        break;
+                }
                 break;
             case OP_RES:
             case OP_RTI:
             default:
-                //bad opcode
+                exit(1);
                 break;
         }
 
